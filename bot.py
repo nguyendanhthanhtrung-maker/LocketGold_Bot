@@ -109,6 +109,7 @@ async def start(u: Update, c: ContextTypes.DEFAULT_TYPE):
 
 async def hdsd(u: Update, c: ContextTypes.DEFAULT_TYPE):
     await auto_reg(u)
+user_id = u.effective_user.id
     txt = (
         "📖 <b>HƯỚNG DẪN SỬ DỤNG:</b>\n\n"
         "🔹 <b>MODULE CÓ SẴN:</b>\n"
@@ -119,7 +120,7 @@ async def hdsd(u: Update, c: ContextTypes.DEFAULT_TYPE):
         "• Tên user: viết liền không dấu.\n"
         "• Ngày: Năm-Tháng-Ngày (đăng ký)."
     )
-    if uid == ADMIN_ID:
+    if user_id == ADMIN_ID:
         txt += "\n\n⚡ <b>ADMIN:</b> /setlink, /broadcast, /delmodule"
     await u.message.reply_text(txt, parse_mode=ParseMode.HTML, reply_markup=get_combined_kb())
 
