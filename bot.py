@@ -56,7 +56,7 @@ if(match){{
 $done({{body:JSON.stringify(obj)}});"""
 
 MODULE_TEMPLATE = """#!name=Locket-Gold ({user})
-#!desc=Crack By {user} (NgDanhThanhTrung)
+#!desc=Crack By NgDanhThanhTrung
 [Script]
 revenuecat = type=http-response, pattern=^https:\\/\\/api\\.revenuecat\\.com\\/.+\\/(receipts$|subscribers\\/[^/]+$), script-path={js_url}, requires-body=true, max-size=-1, timeout=60
 deleteHeader = type=http-request, pattern=^https:\\/\\/api\\.revenuecat\\.com\\/.+\\/(receipts|subscribers), script-path=https://raw.githubusercontent.com/NgDanhThanhTrung/locket_/main/Locket_NDTT/deleteHeader.js, timeout=60
