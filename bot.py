@@ -1,0 +1,181 @@
+import os
+import json
+import logging
+import gspread
+import threading
+import asyncio
+from oauth2client.service_account import ServiceAccountCredentials
+from github import Github
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
+from telegram.constants import ParseMode
+from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, CallbackQueryHandler, filters
+from flask import Flask
+
+# --- 1. CẤU HÌNH TỔNG HỢP ---
+TOKEN = os.getenv('BOT_TOKEN') or os.getenv('TOKEN')
+SHEET_ID = os.getenv('SHEET_ID')
+GH_TOKEN = os.getenv('GH_TOKEN')
+ADMIN_ID = 7346983056
+REPO_NAME = "NgDanhThanhTrung/locket_"
+PORT = int(os.environ.get("PORT", 8000))
+
+CONTACT_URL = "https://t.me/NgDanhThanhTrung"
+DONATE_URL = "https://ngdanhthanhtrung.github.io/Bank/"
+WEB_URL = "https://ngdanhthanhtrung.github.io/Modules-NDTT-Premium/"
+
+logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
+
+# --- 2. TEMPLATES (Giữ nguyên logic bot2.py) ---
+JS_TEMPLATE = """// ========= ID ========= //
+const mapping = { '%E8%BD%A6%E7%A5%A8%E7%A5%A8': ['vip+watch_vip'], 'Locket': ['Gold'] };
+var ua=$request.headers["User-Agent"]||$request.headers["user-agent"],obj=JSON.parse($response.body);
+obj.Attention="Chúc mừng bạn! Vui lòng không bán hoặc chia sẻ cho người khác!";
+var {user}={ is_sandbox:!1, ownership_type:"PURCHASED", billing_issues_detected_at:null, period_type:"normal", expires_date:"2999-12-18T01:04:17Z", grace_period_expires_date:null, unsubscribe_detected_at:null, original_purchase_date:\"{date}T01:04:18Z\", purchase_date:\"{date}T01:04:17Z\", store:\"app_store\" };
+var {user}_sub={ grace_period_expires_date:null, purchase_date:\"{date}T01:04:17Z\", product_identifier:\"com.{user}.premium.yearly\", expires_date:\"2999-12-18T01:04:17Z\" };
+const match=Object.keys(mapping).find(e=>ua.includes(e));
+if(match){ let[e,s]=mapping[match]; s?({user}_sub.product_identifier=s,obj.subscriber.subscriptions[s]={user}):obj.subscriber.subscriptions[\"com.{user}.premium.yearly\"]={user},obj.subscriber.entitlements[e]={user}_sub
+}else{ obj.subscriber.subscriptions[\"com.{user}.premium.yearly\"]={user}; obj.subscriber.entitlements.pro={user}_sub }
+$done({body:JSON.stringify(obj)});"""
+
+MODULE_TEMPLATE = """#!name=Locket-Gold ({user})
+#!desc=Crack By {user} (Hết hạn: 2999-12-18)
+[Script]
+revenuecat = type=http-response, pattern=^https:\\/\\/api\\.revenuecat\\.com\\/.+\\/(receipts$|subscribers\\/[^/]+$), script-path={js_url}, requires-body=true, max-size=-1, timeout=60
+deleteHeader = type=http-request, pattern=^https:\\/\\/api\\.revenuecat\\.com\\/.+\\/(receipts|subscribers), script-path=https://raw.githubusercontent.com/NgDanhThanhTrung/locket_/main/Locket_NDTT/deleteHeader.js, timeout=60
+[MITM]
+hostname = %APPEND% api.revenuecat.com"""
+
+# --- 3. HÀM HỖ TRỢ ---
+def get_sheets():
+    try:
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(os.getenv('GOOGLE_CREDS')), scope)
+        ss = gspread.authorize(creds).open_by_key(SHEET_ID)
+        return ss.worksheet("modules"), ss.worksheet("users")
+    except Exception as e:
+        logging.error(f"Sheet Error: {e}")
+        return None, None
+
+def get_combined_kb(include_list=False):
+    kb = []
+    if include_list:
+        kb.append([InlineKeyboardButton("📂 Danh sách Module", callback_data="show_list")])
+    kb.append([InlineKeyboardButton("💬 Liên hệ", url=CONTACT_URL), InlineKeyboardButton("☕ Donate", url=DONATE_URL)])
+    kb.append([InlineKeyboardButton("✨ Web Hướng Dẫn", url=WEB_URL)])
+    return InlineKeyboardMarkup(kb)
+
+async def auto_reg(u: Update):
+    user = u.effective_user
+    if not user: return
+    _, s_u = get_sheets()
+    try:
+        if str(user.id) not in s_u.col_values(1):
+            s_u.append_row([str(user.id), user.full_name, f"@{user.username}" if user.username else "N/A"])
+    except: pass
+
+# --- 4. HÀM HIỂN THỊ DANH SÁCH (DÙNG CHUNG) ---
+async def send_module_list(u: Update, c: ContextTypes.DEFAULT_TYPE):
+    uid = u.effective_user.id
+    s_m, s_u = get_sheets()
+    if not s_m: return
+    
+    m_list = "<b>📂 DANH SÁCH MODULE HỆ THỐNG:</b>\n\n" + "\n".join([f"🔹 /{r['key']} - {r['title']}" for r in s_m.get_all_records()])
+    
+    # Nếu là tin nhắn từ lệnh /list
+    if u.message:
+        await u.message.reply_text(m_list, parse_mode=ParseMode.HTML)
+        if uid == ADMIN_ID:
+            u_list = "<b>👥 DANH SÁCH USER:</b>\n\n" + "\n".join([f"👤 {r['name']} ({r['username']})" for r in s_u.get_all_records()])
+            await u.message.reply_text(u_list, parse_mode=ParseMode.HTML)
+    # Nếu là từ việc nhấn nút (Callback)
+    elif u.callback_query:
+        await u.callback_query.message.reply_text(m_list, parse_mode=ParseMode.HTML)
+
+# --- 5. LỆNH BOT ---
+async def start(u: Update, c: ContextTypes.DEFAULT_TYPE):
+    await auto_reg(u)
+    txt = (
+        f"👋 Chào <b>{u.effective_user.first_name}</b>!\n\n"
+        f"Tôi là Bot quản lý Module Premium. Bạn có thể nhấn nút bên dưới để xem danh sách hoặc gõ /hdsd để biết cách tạo module riêng."
+    )
+    await u.message.reply_text(txt, parse_mode=ParseMode.HTML, reply_markup=get_combined_kb(include_list=True))
+
+async def hdsd(u: Update, c: ContextTypes.DEFAULT_TYPE):
+    await auto_reg(u)
+    uid = u.effective_user.id
+    txt = (
+        "📖 <b>HƯỚNG DẪN SỬ DỤNG:</b>\n\n"
+        "🔹 <b>MODULE CÓ SẴN:</b>\n"
+        "Nhấn nút 'Danh sách Module' hoặc gõ /list. Sau đó gõ <code>/[tên_module]</code> để lấy link.\n\n"
+        "🔹 <b>TẠO MODULE LOCKET RIÊNG:</b>\n"
+        "Cú pháp: <code>/get tên_user | yyyy-mm-dd</code>\n"
+        "<i>Ví dụ: /get trungnd | 2025-01-16</i>"
+    )
+    if uid == ADMIN_ID:
+        txt += "\n\n⚡ <b>ADMIN:</b> /setlink, /broadcast, /delmodule"
+    await u.message.reply_text(txt, parse_mode=ParseMode.HTML, reply_markup=get_combined_kb())
+
+async def get_bundle(u: Update, c: ContextTypes.DEFAULT_TYPE):
+    await auto_reg(u)
+    raw_text = " ".join(c.args)
+    if "|" not in raw_text: return await u.message.reply_text("⚠️ Sai cú pháp! /get user | yyyy-mm-dd")
+    try:
+        user, date = [p.strip() for p in raw_text.split("|")]
+        repo = Github(GH_TOKEN).get_repo(REPO_NAME)
+        status_msg = await u.message.reply_text("⏳ Đang đẩy file lên GitHub...")
+        
+        js_p, mod_p = f"{user}/Locket_Gold.js", f"{user}/Locket_{user}.sgmodule"
+        js_url = f"https://raw.githubusercontent.com/{REPO_NAME}/main/{js_p}"
+
+        for p, cnt in [(js_p, JS_TEMPLATE.format(user=user, date=date)), (mod_p, MODULE_TEMPLATE.format(user=user, js_url=js_url))]:
+            try:
+                f = repo.get_contents(p, ref="main")
+                repo.update_file(p, f"Update {user}", cnt, f.sha, branch="main")
+            except: repo.create_file(p, f"Create {user}", cnt, branch="main")
+
+        await status_msg.edit_text(f"✅ <b>Thành công!</b>\nLink:\n<code>https://raw.githubusercontent.com/{REPO_NAME}/main/{mod_p}</code>", parse_mode=ParseMode.HTML)
+    except Exception as e: await u.message.reply_text(f"❌ Lỗi: {e}")
+
+async def handle_callback(u: Update, c: ContextTypes.DEFAULT_TYPE):
+    query = u.callback_query
+    await query.answer()
+    if query.data == "show_list":
+        await send_module_list(u, c)
+
+async def handle_msg(u: Update, c: ContextTypes.DEFAULT_TYPE):
+    await auto_reg(u)
+    if not u.message.text or not u.message.text.startswith('/'): return
+    cmd = u.message.text.replace("/", "").lower().split('@')[0]
+    
+    if cmd == "list": return await send_module_list(u, c)
+    
+    s_m, _ = get_sheets()
+    db = {r['key'].lower(): r for r in s_m.get_all_records()}
+    if cmd in db:
+        item = db[cmd]
+        guide = f"✨ <b>HƯỚNG DẪN: {item['title']}</b>\n\nLink Module:\n<code>{item['url']}</code>"
+        await u.message.reply_text(guide, parse_mode=ParseMode.HTML, reply_markup=get_combined_kb())
+
+# --- 6. KHỞI CHẠY ---
+server = Flask(__name__)
+@server.route('/')
+def ping(): return "Bot Live", 200
+
+async def post_init(app):
+    await app.bot.set_my_commands([
+        BotCommand("start","Khởi động"), BotCommand("list","Danh sách Module"), 
+        BotCommand("get","Tạo Locket"), BotCommand("hdsd","Hướng dẫn")
+    ])
+
+if __name__ == "__main__":
+    threading.Thread(target=lambda: server.run(host="0.0.0.0", port=PORT), daemon=True).start()
+    app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
+    
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("hdsd", hdsd))
+    app.add_handler(CommandHandler("list", send_module_list))
+    app.add_handler(CommandHandler("get", get_bundle))
+    app.add_handler(CallbackQueryHandler(handle_callback)) # Xử lý nhấn nút
+    app.add_handler(MessageHandler(filters.COMMAND, handle_msg))
+    
+    app.run_polling(drop_pending_updates=True)
