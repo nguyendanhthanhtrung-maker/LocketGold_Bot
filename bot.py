@@ -87,7 +87,6 @@ async def auto_reg(u: Update):
     if not user: return
     _, s_u = get_sheets()
     try:
-        # Cột 1: ID, Cột 2: Full Name, Cột 3: Username
         if str(user.id) not in s_u.col_values(1):
             s_u.append_row([str(user.id), user.full_name, f"@{user.username}" if user.username else "N/A"])
     except: pass
@@ -95,13 +94,9 @@ async def auto_reg(u: Update):
 async def send_module_list(u: Update, c: ContextTypes.DEFAULT_TYPE):
     s_m, s_u = get_sheets()
     if not s_m: return
-    
-    # Danh sách Module cho mọi người
     m_list = "<b>📂 DANH SÁCH MODULE HỆ THỐNG:</b>\n\n" + "\n".join([f"🔹 /{r['key']} - {r['title']}" for r in s_m.get_all_records()])
     target = u.message if u.message else u.callback_query.message
     await target.reply_text(m_list, parse_mode=ParseMode.HTML)
-    
-    # Danh sách User kèm Username cho Admin
     if u.effective_user.id == ADMIN_ID and u.message:
         users = s_u.get_all_records()
         u_list = "<b>👥 DANH SÁCH USER:</b>\n\n" + "\n".join([f"👤 {r['name']} ({r.get('username', 'N/A')})" for r in users])
@@ -151,11 +146,10 @@ async def get_bundle(u: Update, c: ContextTypes.DEFAULT_TYPE):
         await status_msg.edit_text(f"✅ <b>Thành công!</b>\nLink:\n<code>https://raw.githubusercontent.com/{REPO_NAME}/main/{mod_p}</code>", parse_mode=ParseMode.HTML)
     except Exception as e: await u.message.reply_text(f"❌ Lỗi: {e}")
 
-# --- LỆNH ADMIN ---
+# --- LỆNH ADMIN BỔ SUNG ---
 async def set_link(u: Update, c: ContextTypes.DEFAULT_TYPE):
     if u.effective_user.id != ADMIN_ID: return
     try:
-        # Cú pháp: /setlink key | Tên | URL
         k, t, l = [a.strip() for a in " ".join(c.args).split("|")]
         s_m, _ = get_sheets()
         cell = s_m.find(k.lower(), in_column=1)
@@ -169,9 +163,7 @@ async def del_mod(u: Update, c: ContextTypes.DEFAULT_TYPE):
     s_m, _ = get_sheets()
     try:
         cell = s_m.find(c.args[0].lower(), in_column=1)
-        if cell: 
-            s_m.delete_rows(cell.row)
-            await u.message.reply_text(f"🗑 Đã xóa module: {c.args[0]}")
+        if cell: s_m.delete_rows(cell.row); await u.message.reply_text(f"🗑 Đã xóa module: {c.args[0]}")
         else: await u.message.reply_text("🔍 Không tìm thấy mã module này.")
     except Exception as e: await u.message.reply_text(f"❌ Lỗi: {e}")
 
@@ -179,17 +171,17 @@ async def broadcast(u: Update, c: ContextTypes.DEFAULT_TYPE):
     if u.effective_user.id != ADMIN_ID or not c.args: return
     msg = " ".join(c.args)
     _, s_u = get_sheets()
-    users = s_u.col_values(1)[1:] # Bỏ tiêu đề
+    users = s_u.col_values(1)[1:]
     count = 0
     for uid in users:
         try:
             await c.bot.send_message(chat_id=uid, text=f"📢 <b>THÔNG BÁO TỪ ADMIN:</b>\n\n{msg}", parse_mode=ParseMode.HTML)
             count += 1
-            await asyncio.sleep(0.05) # Tránh bị Telegram chặn spam
+            await asyncio.sleep(0.05)
         except: pass
     await u.message.reply_text(f"✅ Đã gửi thông báo đến {count} người dùng.")
 
-# --- XỬ LÝ CALLBACK & TIN NHẮN ---
+# --- XỬ LÝ TIN NHẮN & HƯỚNG DẪN CHI TIẾT ---
 async def handle_callback(u: Update, c: ContextTypes.DEFAULT_TYPE):
     await u.callback_query.answer()
     if u.callback_query.data == "show_list": await send_module_list(u, c)
@@ -199,15 +191,31 @@ async def handle_msg(u: Update, c: ContextTypes.DEFAULT_TYPE):
     if not u.message.text or not u.message.text.startswith('/'): return
     cmd = u.message.text.replace("/", "").lower().split('@')[0]
     
-    # Bỏ qua các lệnh hệ thống đã đăng ký ở dưới
+    # Bỏ qua lệnh hệ thống
     if cmd in ["start", "hdsd", "list", "get", "setlink", "delmodule", "broadcast"]: return
     
     s_m, _ = get_sheets()
     db = {r['key'].lower(): r for r in s_m.get_all_records()}
+    
     if cmd in db:
         item = db[cmd]
-        guide = f"✨ <b>HƯỚNG DẪN: {item['title']}</b>\n\nLink Module:\n<code>{item['url']}</code>"
-        await u.message.reply_text(guide, parse_mode=ParseMode.HTML, reply_markup=get_combined_kb())
+        guide = (
+            f"✨ <b>HƯỚNG DẪN: {item['title'].upper()}</b> ✨\n\n"
+            f"1️⃣ <b>Copy URL:</b> Chạm giữ link bên dưới:\n<code>{item['url']}</code>\n\n"
+            f"2️⃣ <b>Shadowrocket:</b> Tab <b>Module</b> ➔ <b>Add Module</b> ➔ Dán URL ➔ OK.\n\n"
+            f"3️⃣ <b>HTTPS Decryption:</b>\n"
+            f"• Bật <b>HTTPS Decryption</b> trong Settings.\n"
+            f"• Chọn <b>Generate New CA</b> ➔ Install.\n"
+            f"• Vào Cài đặt máy ➔ Tin cậy chứng chỉ.\n\n"
+            f"4️⃣ <b>Kết nối:</b> Bật VPN và tận hưởng!\n\n"
+            f"⚠️ <i>Lưu ý: Luôn bật VPN khi sử dụng.</i>"
+        )
+        # Thêm nút bấm trực tiếp vào module
+        kb = [[InlineKeyboardButton(f"🔗 Mở Link {item['title']}", url=item['url'])]]
+        # Gộp với menu Liên hệ/Donate gốc
+        kb.extend(get_combined_kb().inline_keyboard)
+        
+        await u.message.reply_text(guide, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(kb))
 
 # --- 5. KHỞI CHẠY WEB SERVICE ---
 server = Flask(__name__)
@@ -221,7 +229,6 @@ if __name__ == "__main__":
     threading.Thread(target=lambda: server.run(host="0.0.0.0", port=PORT), daemon=True).start()
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
-    # Đăng ký các Handler
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("hdsd", hdsd))
     app.add_handler(CommandHandler("list", send_module_list))
