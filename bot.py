@@ -116,7 +116,7 @@ async def hdsd(u: Update, c: ContextTypes.DEFAULT_TYPE):
         "Nhấn nút 'Danh sách Module' hoặc gõ /list. Sau đó gõ <code>/[tên_module]</code> để lấy link.\n\n"
         "🔹 <b>TẠO MODULE LOCKET RIÊNG:</b>\n"
         "Cú pháp: <code>/get tên_user | yyyy-mm-dd</code>\n"
-        "<i>Ví dụ: /get ndtt | 2025-01-16</i>\n"
+        "<i>Ví dụ: /get ndtt | 2025-01-16</i>\n\n"
         "• Tên user: viết liền không dấu.\n"
         "• Ngày: Năm-Tháng-Ngày (đăng ký)."
     )
@@ -144,6 +144,41 @@ async def get_bundle(u: Update, c: ContextTypes.DEFAULT_TYPE):
 
         await status_msg.edit_text(f"✅ <b>Thành công!</b>\nLink:\n<code>https://raw.githubusercontent.com/{REPO_NAME}/main/{mod_p}</code>", parse_mode=ParseMode.HTML)
     except Exception as e: await u.message.reply_text(f"❌ Lỗi: {e}")
+
+# --- LỆNH ADMIN BỔ SUNG ---
+async def set_link(u: Update, c: ContextTypes.DEFAULT_TYPE):
+    if u.effective_user.id != ADMIN_ID: return
+    try:
+        k, t, l = [a.strip() for a in " ".join(c.args).split("|")]
+        s_m, _ = get_sheets()
+        cell = s_m.find(k.lower(), in_column=1)
+        if cell: s_m.update(f'B{cell.row}:C{cell.row}', [[t, l]])
+        else: s_m.append_row([k.lower(), t, l])
+        await u.message.reply_text(f"✅ Đã lưu: {t}")
+    except: await u.message.reply_text("❌ Cú pháp: /setlink key | Tên | URL")
+
+async def del_mod(u: Update, c: ContextTypes.DEFAULT_TYPE):
+    if u.effective_user.id != ADMIN_ID or not c.args: return
+    s_m, _ = get_sheets()
+    try:
+        cell = s_m.find(c.args[0].lower(), in_column=1)
+        if cell: s_m.delete_rows(cell.row); await u.message.reply_text(f"🗑 Đã xóa: {c.args[0]}")
+        else: await u.message.reply_text("🔍 Không tìm thấy.")
+    except Exception as e: await u.message.reply_text(f"❌ Lỗi: {e}")
+
+async def broadcast(u: Update, c: ContextTypes.DEFAULT_TYPE):
+    if u.effective_user.id != ADMIN_ID or not c.args: return
+    msg = " ".join(c.args)
+    _, s_u = get_sheets()
+    users = s_u.col_values(1)[1:]
+    count = 0
+    for uid in users:
+        try:
+            await c.bot.send_message(chat_id=uid, text=f"📢 <b>THÔNG BÁO TỪ ADMIN:</b>\n\n{msg}", parse_mode=ParseMode.HTML)
+            count += 1
+            await asyncio.sleep(0.05)
+        except: pass
+    await u.message.reply_text(f"✅ Đã gửi thông báo đến {count} người dùng.")
 
 async def handle_callback(u: Update, c: ContextTypes.DEFAULT_TYPE):
     await u.callback_query.answer()
@@ -176,6 +211,9 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("hdsd", hdsd))
     app.add_handler(CommandHandler("list", send_module_list))
     app.add_handler(CommandHandler("get", get_bundle))
+    app.add_handler(CommandHandler("setlink", set_link))
+    app.add_handler(CommandHandler("delmodule", del_mod))
+    app.add_handler(CommandHandler("broadcast", broadcast))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.COMMAND, handle_msg))
     app.run_polling(drop_pending_updates=True)
