@@ -23,6 +23,7 @@ logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 # --- 2. TEMPLATES ---
 JS_TEMPLATE = """// ========= ID ========= //
 const mapping = {{
+  '%E8%BD%A6%E7%A5%A8%E7%A5%A8': ['vip+watch_vip'],
   'Locket': ['Gold']
 }};
 var ua=$request.headers["User-Agent"]||$request.headers["user-agent"],obj=JSON.parse($response.body);
@@ -110,20 +111,19 @@ async def start(u: Update, c: ContextTypes.DEFAULT_TYPE):
 
 async def hdsd(u: Update, c: ContextTypes.DEFAULT_TYPE):
     await auto_reg(u)
-    user_id = u.effective_user.id 
+    user_id = u.effective_user.id
     txt = (
         "📖 <b>HƯỚNG DẪN SỬ DỤNG:</b>\n\n"
         "🔹 <b>MODULE CÓ SẴN:</b>\n"
         "Nhấn nút 'Danh sách Module' hoặc gõ /list. Sau đó gõ <code>/[tên_module]</code> để lấy link.\n\n"
         "🔹 <b>TẠO MODULE LOCKET RIÊNG:</b>\n"
         "Cú pháp: <code>/get tên_user | yyyy-mm-dd</code>\n"
-        "<i>Ví dụ: /get ndtt | 2025-01-16</i>\n\n"
+        "<i>Ví dụ: /get ndtt | 2025-01-16</i>\n"
         "• Tên user: viết liền không dấu.\n"
         "• Ngày: Năm-Tháng-Ngày (đăng ký)."
     )
     if user_id == ADMIN_ID:
         txt += "\n\n⚡ <b>ADMIN:</b> /setlink, /broadcast, /delmodule"
-    
     await u.message.reply_text(txt, parse_mode=ParseMode.HTML, reply_markup=get_combined_kb())
 
 async def get_bundle(u: Update, c: ContextTypes.DEFAULT_TYPE):
@@ -173,15 +173,14 @@ async def broadcast(u: Update, c: ContextTypes.DEFAULT_TYPE):
     _, s_u = get_sheets()
     users = s_u.col_values(1)[1:]
     count = 0
-    for uid in users:
+    for uid_str in users:
         try:
-            await c.bot.send_message(chat_id=uid, text=f"📢 <b>THÔNG BÁO TỪ ADMIN:</b>\n\n{msg}", parse_mode=ParseMode.HTML)
+            await c.bot.send_message(chat_id=uid_str, text=f"📢 <b>THÔNG BÁO TỪ ADMIN:</b>\n\n{msg}", parse_mode=ParseMode.HTML)
             count += 1
             await asyncio.sleep(0.05)
         except: pass
-    await u.message.reply_text(f"✅ Đã gửi thông báo đến {count} người dùng.")
+    await u.message.reply_text(f"✅ Đã gửi tới {count} người dùng.")
 
-# --- XỬ LÝ TIN NHẮN & HƯỚNG DẪN CHI TIẾT ---
 async def handle_callback(u: Update, c: ContextTypes.DEFAULT_TYPE):
     await u.callback_query.answer()
     if u.callback_query.data == "show_list": await send_module_list(u, c)
@@ -191,12 +190,10 @@ async def handle_msg(u: Update, c: ContextTypes.DEFAULT_TYPE):
     if not u.message.text or not u.message.text.startswith('/'): return
     cmd = u.message.text.replace("/", "").lower().split('@')[0]
     
-    # Bỏ qua lệnh hệ thống
     if cmd in ["start", "hdsd", "list", "get", "setlink", "delmodule", "broadcast"]: return
-    
+
     s_m, _ = get_sheets()
     db = {r['key'].lower(): r for r in s_m.get_all_records()}
-    
     if cmd in db:
         item = db[cmd]
         guide = (
@@ -223,7 +220,12 @@ server = Flask(__name__)
 def ping(): return "Bot is Live!", 200
 
 async def post_init(app):
-    await app.bot.set_my_commands([BotCommand("start","Khởi động"), BotCommand("list","Danh sách"), BotCommand("hdsd","Hướng dẫn")])
+    # Cập nhật menu lệnh hiển thị trong ứng dụng Telegram
+    await app.bot.set_my_commands([
+        BotCommand("start", "Khởi động"),
+        BotCommand("list", "Danh sách Module"),
+        BotCommand("hdsd", "Hướng dẫn sử dụng")
+    ])
 
 if __name__ == "__main__":
     threading.Thread(target=lambda: server.run(host="0.0.0.0", port=PORT), daemon=True).start()
